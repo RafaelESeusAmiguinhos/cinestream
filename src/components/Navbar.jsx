@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 
-export default function Navbar() {
+export default function Navbar({ onResetKey }) {
   const [scrolled, setScrolled] = useState(false)
   const [query, setQuery] = useState('')
   const [searching, setSearching] = useState(false)
@@ -19,6 +19,7 @@ export default function Navbar() {
     if (query.trim()) {
       navigate(`/buscar?q=${encodeURIComponent(query.trim())}`)
       setSearching(false)
+      setQuery('')
     }
   }
 
@@ -31,14 +32,13 @@ export default function Navbar() {
       }`}
     >
       <div className="max-w-screen-2xl mx-auto px-4 md:px-8 flex items-center justify-between h-16">
-        {/* Logo */}
+        {/* Logo + nav */}
         <div className="flex items-center gap-8">
-          <Link to="/" className="text-2xl font-black tracking-tight">
+          <Link to="/" className="text-2xl font-black tracking-tight flex-shrink-0">
             <span className="text-[#E50914]">CINE</span>
             <span className="text-white">STREAM</span>
           </Link>
 
-          {/* Desktop nav */}
           <div className="hidden md:flex items-center gap-6 text-sm font-medium">
             {[
               { path: '/', label: 'Início' },
@@ -60,39 +60,48 @@ export default function Navbar() {
         </div>
 
         {/* Right side */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
           {/* Search */}
-          <div className="flex items-center">
-            {searching ? (
-              <form onSubmit={handleSearch} className="flex items-center">
-                <input
-                  autoFocus
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Buscar filmes, séries, anime..."
-                  className="bg-black/80 border border-white/30 text-white text-sm px-3 py-1.5 rounded-l outline-none w-48 md:w-64"
-                  onBlur={() => !query && setSearching(false)}
-                />
-                <button
-                  type="submit"
-                  className="bg-white/10 border border-white/30 border-l-0 px-3 py-1.5 rounded-r hover:bg-white/20"
-                >
-                  🔍
-                </button>
-              </form>
-            ) : (
+          {searching ? (
+            <form onSubmit={handleSearch} className="flex items-center">
+              <input
+                autoFocus
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Buscar filmes, séries, anime..."
+                className="bg-black/80 border border-white/30 text-white text-sm px-3 py-1.5 rounded-l outline-none w-44 md:w-64"
+                onBlur={() => !query && setSearching(false)}
+              />
               <button
-                onClick={() => setSearching(true)}
-                className="text-gray-300 hover:text-white text-xl transition-colors"
-                title="Buscar"
+                type="submit"
+                className="bg-white/10 border border-white/30 border-l-0 px-3 py-1.5 rounded-r hover:bg-white/20"
               >
                 🔍
               </button>
-            )}
-          </div>
+            </form>
+          ) : (
+            <button
+              onClick={() => setSearching(true)}
+              className="text-gray-300 hover:text-white text-lg transition-colors"
+              title="Buscar"
+            >
+              🔍
+            </button>
+          )}
 
-          {/* Mobile menu */}
-          <div className="flex md:hidden gap-4 text-xs font-medium">
+          {/* Change TMDB key */}
+          {onResetKey && (
+            <button
+              onClick={onResetKey}
+              title="Alterar chave TMDB"
+              className="hidden md:flex text-gray-500 hover:text-gray-300 text-xs transition-colors"
+            >
+              ⚙
+            </button>
+          )}
+
+          {/* Mobile nav links */}
+          <div className="flex md:hidden gap-3 text-xs font-medium">
             {[
               { path: '/filmes', label: 'Filmes' },
               { path: '/series', label: 'Séries' },

@@ -26,6 +26,7 @@ export const getSeasonAnime = () => safeGet('/seasons/now', { limit: 20 })
 export const getAnimeByGenre = (genreId, page = 1) =>
   safeGet('/anime', { genres: genreId, page, order_by: 'popularity', sort: 'asc', limit: 20 })
 export const getAnimeDetails = (id) => safeGet(`/anime/${id}/full`)
+export const getAnimeEpisodes = (id, page = 1) => safeGet(`/anime/${id}/episodes`, { page })
 export const searchAnime = (query, page = 1) => safeGet('/anime', { q: query, page, limit: 20 })
 
 export const ANIME_GENRES = [
