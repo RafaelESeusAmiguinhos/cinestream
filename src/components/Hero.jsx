@@ -21,7 +21,7 @@ export default function Hero({ items, type = 'movie', onPlay }) {
     return <div className="h-[60vh] bg-gray-900 skeleton" />
   }
 
-  const item = items[idx]
+  const item = items[Math.min(idx, items.length - 1)]
   const isAnime = type === 'anime'
 
   const title = isAnime

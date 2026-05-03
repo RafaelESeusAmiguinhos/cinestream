@@ -4,10 +4,10 @@ import { getAnimeDetails, getAnimeEpisodes } from '../api/jikan'
 import { searchAniList, getEpisodesFromAniList, getStreamUrl } from '../api/consumet'
 import VideoPlayer from './VideoPlayer'
 
-/* ────────────────────────────────────────────
-   Servidores de embed para filmes / séries
-   sandbox bloqueia popups e redirecionamentos
-──────────────────────────────────────────── */
+/* ─────────────────────────────────────────────────
+   Servidores de embed — 5 opções por tipo
+   SEM sandbox: permite CC, fullscreen e JS do player
+───────────────────────────────────────────────── */
 const MOVIE_SERVERS = [
   { id: 1, name: 'Server 1', url: (id) => `https://vidsrc.me/embed/movie?tmdb=${id}` },
   { id: 2, name: 'Server 2', url: (id) => `https://embed.su/embed/movie/${id}` },
@@ -24,28 +24,25 @@ const TV_SERVERS = [
   { id: 5, name: 'Server 5', url: (id, s, e) => `https://vidsrc.to/embed/tv/${id}/${s}/${e}` },
 ]
 
-// Atributo sandbox: bloqueia popups e redirecionamentos sem quebrar o player
-const IFRAME_SANDBOX =
-  'allow-scripts allow-same-origin allow-forms allow-presentation allow-autoplay'
-
-/* ────────────────────────────────────
-   Player de filmes / séries (iframes)
-──────────────────────────────────── */
+/* ──────────────────────────────────────────────
+   Player de filmes / séries
+   Legendas: botão CC nativo dentro do player embed
+────────────────────────────────────────────── */
 function TmdbPlayer({ item, type }) {
-  const [details, setDetails] = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [mode, setMode] = useState('info')   // 'info' | 'trailer' | 'watch'
+  const [details, setDetails]   = useState(null)
+  const [loading, setLoading]   = useState(true)
+  const [mode, setMode]         = useState('info')   // 'info' | 'trailer' | 'watch'
   const [trailerKey, setTrailerKey] = useState(null)
-  const [season, setSeason] = useState(1)
-  const [episode, setEpisode] = useState(1)
+  const [season, setSeason]     = useState(1)
+  const [episode, setEpisode]   = useState(1)
+  const [seasonEps, setSeasonEps] = useState({})
   const [totalSeasons, setTotalSeasons] = useState(1)
-  const [seasonEps, setSeasonEps] = useState({})  // { season: totalEps }
-  const [server, setServer] = useState(1)
+  const [server, setServer]     = useState(1)
   const isTV = type === 'tv'
   const servers = isTV ? TV_SERVERS : MOVIE_SERVERS
 
   useEffect(() => {
-    const fetch = async () => {
+    const load = async () => {
       setLoading(true)
       try {
         const res = isTV ? await getSeriesDetails(item.id) : await getMovieDetails(item.id)
@@ -54,17 +51,16 @@ function TmdbPlayer({ item, type }) {
         const t = d.videos?.results?.find((v) => v.type === 'Trailer' && v.site === 'YouTube')
         if (t) setTrailerKey(t.key)
         if (isTV) {
-          const realSeasons = (d.seasons ?? []).filter((s) => s.season_number > 0)
-          setTotalSeasons(realSeasons.length || d.number_of_seasons || 1)
+          const real = (d.seasons ?? []).filter((s) => s.season_number > 0)
+          setTotalSeasons(real.length || d.number_of_seasons || 1)
           const counts = {}
-          realSeasons.forEach((s) => { counts[s.season_number] = s.episode_count ?? 1 })
+          real.forEach((s) => { counts[s.season_number] = s.episode_count ?? 1 })
           setSeasonEps(counts)
-          const first = realSeasons[0]
-          if (first) { setSeason(first.season_number); }
+          if (real[0]) setSeason(real[0].season_number)
         }
       } catch { /* silencia */ } finally { setLoading(false) }
     }
-    fetch()
+    load()
   }, [item.id, isTV])
 
   const totalEps = seasonEps[season] ?? 1
@@ -88,17 +84,17 @@ function TmdbPlayer({ item, type }) {
 
   return (
     <div>
-      {/* ── Player / trailer / poster ── */}
+      {/* ── Área do player ── */}
       {mode === 'watch' && (
         <div className="bg-black">
-          {/* Barra de servidores */}
-          <div className="flex flex-wrap items-center gap-1.5 p-2 bg-[#111]">
-            <span className="text-gray-500 text-xs mr-1">Servidor:</span>
+          {/* Barra de controles */}
+          <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 bg-[#0d0d0d]">
+            <span className="text-gray-500 text-xs">Servidor:</span>
             {servers.map((s) => (
               <button
                 key={s.id}
                 onClick={() => setServer(s.id)}
-                className={`text-xs px-3 py-1 rounded-full transition-colors font-medium ${
+                className={`text-xs px-3 py-1 rounded-full font-medium transition-colors ${
                   server === s.id
                     ? 'bg-[#E50914] text-white'
                     : 'bg-white/10 text-gray-300 hover:bg-white/20'
@@ -108,25 +104,25 @@ function TmdbPlayer({ item, type }) {
               </button>
             ))}
 
-            {/* Seletor de temporada/episódio para séries */}
+            {/* Seletor T/E para séries */}
             {isTV && (
-              <div className="flex gap-1.5 ml-auto">
+              <div className="flex gap-1.5 ml-auto items-center">
                 <select
                   value={season}
                   onChange={(e) => { setSeason(+e.target.value); setEpisode(1) }}
-                  className="bg-white/10 text-white text-xs px-2 py-1 rounded border border-white/20 outline-none"
+                  className="bg-white/10 text-white text-xs px-2 py-1 rounded border border-white/15 outline-none"
                 >
                   {Array.from({ length: totalSeasons }, (_, i) => i + 1).map((s) => (
-                    <option key={s} value={s} className="bg-gray-900">Temp. {s}</option>
+                    <option key={s} value={s} className="bg-gray-900">T{s}</option>
                   ))}
                 </select>
                 <select
                   value={episode}
                   onChange={(e) => setEpisode(+e.target.value)}
-                  className="bg-white/10 text-white text-xs px-2 py-1 rounded border border-white/20 outline-none"
+                  className="bg-white/10 text-white text-xs px-2 py-1 rounded border border-white/15 outline-none"
                 >
                   {Array.from({ length: Math.max(totalEps, 1) }, (_, i) => i + 1).map((e) => (
-                    <option key={e} value={e} className="bg-gray-900">Ep. {e}</option>
+                    <option key={e} value={e} className="bg-gray-900">E{e}</option>
                   ))}
                 </select>
               </div>
@@ -134,25 +130,32 @@ function TmdbPlayer({ item, type }) {
 
             <button
               onClick={() => setMode('info')}
-              className="text-gray-500 hover:text-white text-xs px-2 ml-1"
+              className="text-gray-500 hover:text-white text-sm px-2 ml-auto"
+              title="Fechar player"
             >
               ✕
             </button>
           </div>
 
-          {/* iframe com sandbox anti-ads/redirect */}
+          {/* iframe — SEM sandbox para permitir CC, fullscreen e JavaScript do player */}
           <iframe
             key={`${server}-${season}-${episode}`}
             src={embedUrl}
             className="w-full aspect-video"
             allowFullScreen
-            allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
-            sandbox={IFRAME_SANDBOX}
+            allow="autoplay; encrypted-media; fullscreen; picture-in-picture; clipboard-write"
             referrerPolicy="no-referrer"
           />
-          <p className="text-gray-600 text-xs text-center py-1.5 bg-[#111]">
-            Popups e redirecionamentos bloqueados · Se não carregar, troque o servidor
-          </p>
+
+          {/* Dica de legendas */}
+          <div className="flex items-center justify-between px-3 py-1.5 bg-[#0d0d0d]">
+            <span className="text-gray-600 text-xs">
+              Legendas: clique em <kbd className="bg-white/10 px-1 rounded text-gray-400">CC</kbd> dentro do player
+            </span>
+            <span className="text-gray-600 text-xs">
+              Não carregou? Troque o servidor acima
+            </span>
+          </div>
         </div>
       )}
 
@@ -162,7 +165,7 @@ function TmdbPlayer({ item, type }) {
           className="w-full aspect-video"
           allow="autoplay; encrypted-media; fullscreen"
           allowFullScreen
-          sandbox={IFRAME_SANDBOX}
+          referrerPolicy="no-referrer"
         />
       )}
 
@@ -183,7 +186,7 @@ function TmdbPlayer({ item, type }) {
         </div>
       )}
 
-      {/* ── Informações ── */}
+      {/* ── Info ── */}
       <div className="p-5 md:p-6">
         <div className="flex flex-wrap gap-2 mb-4">
           <button
@@ -207,7 +210,7 @@ function TmdbPlayer({ item, type }) {
           {score > 0 && <span className="text-yellow-400 font-bold">⭐ {Number(score).toFixed(1)}</span>}
           {year && <span className="text-gray-400">{year}</span>}
           {isTV && totalSeasons > 0 && (
-            <span className="text-gray-400">{totalSeasons} temporada{totalSeasons > 1 ? 's' : ''}</span>
+            <span className="text-gray-400">{totalSeasons} temp.</span>
           )}
         </div>
         {genres.length > 0 && (
@@ -224,9 +227,9 @@ function TmdbPlayer({ item, type }) {
   )
 }
 
-/* ────────────────────────────────
-   Player de anime com sub / dub
-──────────────────────────────── */
+/* ───────────────────────────────
+   Player de anime — sub / dub / CC
+─────────────────────────────── */
 function AnimePlayer({ item }) {
   const [details, setDetails]     = useState(null)
   const [jikanEps, setJikanEps]   = useState([])
@@ -234,40 +237,34 @@ function AnimePlayer({ item }) {
   const [epPage, setEpPage]       = useState(1)
   const [activeTab, setActiveTab] = useState('sobre')
   const [subOrDub, setSubOrDub]   = useState('sub')
-  const [dubAvail, setDubAvail]   = useState(null)  // null=desconhecido, true/false
+  const [dubAvail, setDubAvail]   = useState(null)
 
-  // Stream
-  const [selectedEp, setSelectedEp]   = useState(null)
-  const [streamUrl, setStreamUrl]     = useState(null)
-  const [subtitles, setSubtitles]     = useState([])
+  const [selectedEp, setSelectedEp]       = useState(null)
+  const [streamUrl, setStreamUrl]         = useState(null)
+  const [subtitles, setSubtitles]         = useState([])
   const [streamLoading, setStreamLoading] = useState(false)
-  const [streamError, setStreamError] = useState('')
-  const [streamStatus, setStreamStatus] = useState('')
+  const [streamError, setStreamError]     = useState('')
+  const [streamStatus, setStreamStatus]   = useState('')
 
-  // Refs de cache
-  const anilistId    = useRef(null)
-  const consumetEps  = useRef({ sub: [], dub: [] })
+  const anilistId   = useRef(null)
+  const consumetEps = useRef({ sub: [], dub: [] })
 
-  // Carrega detalhes e episódios do Jikan
+  /* Carrega detalhes e episódios do Jikan */
   useEffect(() => {
-    const load = async () => {
-      try {
-        const [detRes, epRes] = await Promise.allSettled([
-          getAnimeDetails(item.mal_id),
-          getAnimeEpisodes(item.mal_id, 1),
-        ])
-        if (detRes.status === 'fulfilled') setDetails(detRes.value?.data?.data)
-        if (epRes.status === 'fulfilled') {
-          const d = epRes.value?.data
-          setJikanEps(d?.data ?? [])
-          setTotalEps(d?.pagination?.items?.total ?? 0)
-        }
-      } catch { /* ignora */ }
-    }
-    load()
+    Promise.allSettled([
+      getAnimeDetails(item.mal_id),
+      getAnimeEpisodes(item.mal_id, 1),
+    ]).then(([det, ep]) => {
+      if (det.status === 'fulfilled') setDetails(det.value?.data?.data)
+      if (ep.status === 'fulfilled') {
+        const d = ep.value?.data
+        setJikanEps(d?.data ?? [])
+        setTotalEps(d?.pagination?.items?.total ?? 0)
+      }
+    })
   }, [item.mal_id])
 
-  // Mais episódios (paginação)
+  /* Paginação de episódios */
   useEffect(() => {
     if (epPage === 1) return
     getAnimeEpisodes(item.mal_id, epPage)
@@ -275,7 +272,7 @@ function AnimePlayer({ item }) {
       .catch(() => {})
   }, [epPage, item.mal_id])
 
-  // Quando troca sub/dub, reinicia stream
+  /* Reset ao trocar sub/dub */
   useEffect(() => {
     setStreamUrl(null)
     setSelectedEp(null)
@@ -292,50 +289,45 @@ function AnimePlayer({ item }) {
     setActiveTab('episodios')
 
     try {
-      // 1 — Obtém AniList ID (uma vez)
+      /* 1 — AniList ID */
       if (!anilistId.current) {
-        const searchTitle =
-          details?.title_english ?? details?.title ?? item.title_english ?? item.title
-        setStreamStatus(`Buscando "${searchTitle}" no AniList...`)
-        const media = await searchAniList(searchTitle)
+        const title = details?.title_english ?? details?.title ?? item.title_english ?? item.title
+        setStreamStatus(`Buscando "${title}" no AniList...`)
+        const media = await searchAniList(title)
         if (!media?.id) throw new Error('Anime não encontrado no AniList')
         anilistId.current = media.id
       }
 
-      // 2 — Obtém lista de episódios (sub ou dub)
+      /* 2 — Lista de episódios */
       if (consumetEps.current[subOrDub].length === 0) {
-        setStreamStatus(`Carregando episódios (${subOrDub.toUpperCase()})... aguarde ~30s`)
+        setStreamStatus(`Conectando ao servidor de streaming... (até 40s na primeira vez)`)
         const eps = await getEpisodesFromAniList(anilistId.current, subOrDub)
         if (eps.length === 0 && subOrDub === 'dub') {
           setDubAvail(false)
           throw new Error('Dublagem não disponível para este anime')
         }
-        if (eps.length === 0) throw new Error('Nenhum episódio encontrado na fonte')
+        if (eps.length === 0) throw new Error('Episódios não encontrados. Tente novamente.')
         consumetEps.current[subOrDub] = eps
         if (subOrDub === 'dub') setDubAvail(true)
       }
 
-      // 3 — Encontra episódio
+      /* 3 — Episódio específico */
       const eps = consumetEps.current[subOrDub]
-      const epEntry =
-        eps.find((e) => e.number === epNum) ?? eps[epNum - 1]
-      if (!epEntry) throw new Error(`Episódio ${epNum} indisponível`)
+      const epEntry = eps.find((e) => e.number === epNum) ?? eps[epNum - 1]
+      if (!epEntry) throw new Error(`Episódio ${epNum} não disponível nesta fonte`)
 
-      // 4 — Obtém URL de stream
+      /* 4 — Stream */
       setStreamStatus(`Carregando stream — episódio ${epNum}...`)
       const { url, subtitles: subs } = await getStreamUrl(epEntry.id)
-      if (!url) throw new Error('Stream não encontrado para este episódio')
-
+      if (!url) throw new Error('Stream não encontrado. Tente outro episódio.')
       setStreamUrl(url)
       setSubtitles(subs)
     } catch (e) {
       const msg = e.message ?? ''
-      if (msg.includes('timeout') || msg.includes('ECONNABORTED') || msg.includes('falharam')) {
-        setStreamError(
-          'Servidor de streaming não respondeu. Aguarde ~1 min e tente novamente — o servidor gratuito pode estar iniciando.'
-        )
+      if (msg.includes('abort') || msg.includes('timeout') || msg.includes('falharam') || msg.includes('fetch')) {
+        setStreamError('Não foi possível conectar ao servidor de streaming. Tente novamente — pode levar ~40s para iniciar.')
       } else {
-        setStreamError(msg || 'Erro ao carregar stream.')
+        setStreamError(msg || 'Erro ao carregar o stream.')
       }
     } finally {
       setStreamLoading(false)
@@ -343,13 +335,13 @@ function AnimePlayer({ item }) {
     }
   }
 
-  const title    = details?.title    ?? details?.title_english ?? item.title
+  const title   = details?.title ?? details?.title_english ?? item.title
   const overview = details?.synopsis
-  const score    = details?.score    ?? item.score
-  const poster   = details?.images?.jpg?.large_image_url ?? item.images?.jpg?.large_image_url
-  const genres   = details?.genres?.map((g) => g.name) ?? []
-  const epCount  = details?.episodes ?? item.episodes ?? totalEps
-  const year     = details?.year     ?? item.year
+  const score   = details?.score ?? item.score
+  const poster  = details?.images?.jpg?.large_image_url ?? item.images?.jpg?.large_image_url
+  const genres  = details?.genres?.map((g) => g.name) ?? []
+  const epCount = details?.episodes ?? item.episodes ?? totalEps
+  const year    = details?.year ?? item.year
 
   return (
     <div>
@@ -357,34 +349,39 @@ function AnimePlayer({ item }) {
       {streamLoading && (
         <div className="w-full aspect-video bg-black flex flex-col items-center justify-center gap-4 px-6 text-center">
           <div className="w-12 h-12 border-4 border-[#E50914] border-t-transparent rounded-full animate-spin" />
-          <p className="text-gray-300 text-sm">{streamStatus || 'Carregando...'}</p>
-          <p className="text-gray-600 text-xs">Servidores gratuitos podem levar até 40s na primeira carga</p>
+          <p className="text-gray-300 text-sm font-medium">{streamStatus}</p>
+          <p className="text-gray-600 text-xs">
+            O servidor gratuito pode levar até 40s para iniciar · Se demorar muito, tente novamente
+          </p>
         </div>
       )}
 
       {!streamLoading && streamUrl && (
-        <div className="relative">
+        <div className="relative bg-black">
           <VideoPlayer src={streamUrl} poster={poster} subtitles={subtitles} />
-          <div className="absolute top-2 left-2 flex gap-1">
-            <span className="bg-black/70 text-white text-xs px-3 py-1 rounded-full">
+
+          {/* Badges sobrepostos */}
+          <div className="absolute top-2 left-2 flex gap-1.5 pointer-events-none">
+            <span className="bg-black/75 text-white text-xs px-2.5 py-1 rounded-full backdrop-blur-sm">
               Ep. {selectedEp}
             </span>
-            <span className={`text-xs px-2 py-1 rounded-full font-bold ${
-              subOrDub === 'dub' ? 'bg-blue-700 text-white' : 'bg-yellow-700 text-white'
+            <span className={`text-xs px-2.5 py-1 rounded-full font-bold backdrop-blur-sm ${
+              subOrDub === 'dub' ? 'bg-blue-700/90 text-white' : 'bg-amber-700/90 text-white'
             }`}>
-              {subOrDub.toUpperCase()}
+              {subOrDub === 'dub' ? 'DUB' : 'LEG'}
             </span>
             {subtitles.length > 0 && (
-              <span className="bg-green-700/80 text-white text-xs px-2 py-1 rounded-full">
+              <span className="bg-green-700/90 text-white text-xs px-2.5 py-1 rounded-full backdrop-blur-sm">
                 CC
               </span>
             )}
           </div>
+
           <button
             onClick={() => { setStreamUrl(null); setSelectedEp(null) }}
-            className="absolute top-2 right-2 bg-black/70 hover:bg-black text-white text-xs px-3 py-1 rounded-full"
+            className="absolute top-2 right-2 bg-black/70 hover:bg-black text-white text-xs px-3 py-1 rounded-full backdrop-blur-sm"
           >
-            ✕ Fechar
+            ✕
           </button>
         </div>
       )}
@@ -416,18 +413,18 @@ function AnimePlayer({ item }) {
       </div>
 
       <div className="p-5">
-        {/* ── Erro de stream ── */}
+        {/* Erro */}
         {streamError && (
-          <div className="bg-red-900/30 border border-red-700/50 rounded-lg px-4 py-3 mb-4 flex gap-3">
-            <span className="text-red-400 text-lg flex-shrink-0 mt-0.5">⚠</span>
+          <div className="bg-red-900/30 border border-red-700/40 rounded-lg px-4 py-3 mb-4 flex gap-3">
+            <span className="text-red-400 text-base mt-0.5 flex-shrink-0">⚠</span>
             <div>
-              <p className="text-red-300 text-sm">{streamError}</p>
+              <p className="text-red-300 text-sm leading-relaxed">{streamError}</p>
               {selectedEp && (
                 <button
                   onClick={() => playEpisode(selectedEp)}
-                  className="mt-2 text-xs bg-red-700 hover:bg-red-600 text-white px-3 py-1 rounded transition-colors"
+                  className="mt-2 text-xs bg-red-800 hover:bg-red-700 text-white px-3 py-1 rounded transition-colors"
                 >
-                  Tentar novamente
+                  ↺ Tentar novamente
                 </button>
               )}
             </div>
@@ -439,11 +436,7 @@ function AnimePlayer({ item }) {
           <div>
             <div className="flex gap-4 mb-4">
               {poster && (
-                <img
-                  src={poster}
-                  alt={title}
-                  className="w-20 rounded-lg object-cover flex-shrink-0 hidden sm:block"
-                />
+                <img src={poster} alt={title} className="w-20 rounded-lg object-cover flex-shrink-0 hidden sm:block" />
               )}
               <div className="flex-1 min-w-0">
                 <h2 className="text-white text-xl font-bold leading-tight">{title}</h2>
@@ -479,7 +472,7 @@ function AnimePlayer({ item }) {
             )}
             <button
               onClick={() => setActiveTab('episodios')}
-              className="mt-4 flex items-center gap-2 bg-[#E50914] text-white font-bold px-5 py-2 rounded-md hover:bg-red-700 transition-colors text-sm"
+              className="mt-4 inline-flex items-center gap-2 bg-[#E50914] text-white font-bold px-5 py-2 rounded-md hover:bg-red-700 transition-colors text-sm"
             >
               ▶ Ver Episódios
             </button>
@@ -489,15 +482,15 @@ function AnimePlayer({ item }) {
         {/* ── Aba Episódios ── */}
         {activeTab === 'episodios' && (
           <div>
-            {/* Toggle Sub / Dub */}
-            <div className="flex items-center gap-3 mb-4">
+            {/* Toggle Legendado / Dublado */}
+            <div className="flex items-center gap-3 mb-4 flex-wrap">
               <span className="text-gray-400 text-sm font-medium">Áudio:</span>
               <div className="flex rounded-lg overflow-hidden border border-white/15">
                 <button
                   onClick={() => setSubOrDub('sub')}
                   className={`px-4 py-1.5 text-sm font-bold transition-colors ${
                     subOrDub === 'sub'
-                      ? 'bg-yellow-600 text-white'
+                      ? 'bg-amber-600 text-white'
                       : 'bg-white/5 text-gray-400 hover:bg-white/10'
                   }`}
                 >
@@ -511,15 +504,12 @@ function AnimePlayer({ item }) {
                       : 'bg-white/5 text-gray-400 hover:bg-white/10'
                   }`}
                 >
-                  Dublado
-                  {dubAvail === false && (
-                    <span className="ml-1 text-xs opacity-60">✕</span>
-                  )}
+                  Dublado {dubAvail === false && <span className="opacity-50 text-xs">✕</span>}
                 </button>
               </div>
               {subtitles.length > 0 && (
-                <span className="text-green-400 text-xs bg-green-900/40 px-2 py-0.5 rounded">
-                  CC Legendas disponíveis
+                <span className="text-green-400 text-xs bg-green-900/40 px-2.5 py-1 rounded-full">
+                  CC disponível
                 </span>
               )}
             </div>
@@ -534,33 +524,26 @@ function AnimePlayer({ item }) {
               <>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-72 overflow-y-auto pr-1">
                   {jikanEps.map((ep) => {
-                    const isPlaying = selectedEp === ep.mal_id && !!streamUrl
-                    const isLoading = selectedEp === ep.mal_id && streamLoading
+                    const playing = selectedEp === ep.mal_id && !!streamUrl
+                    const loading = selectedEp === ep.mal_id && streamLoading
                     return (
                       <button
                         key={ep.mal_id}
                         onClick={() => playEpisode(ep.mal_id)}
                         disabled={streamLoading}
                         className={`text-left p-3 rounded-lg text-sm transition-all border disabled:opacity-50 ${
-                          isPlaying
-                            ? 'bg-[#E50914] border-red-600 text-white'
-                            : isLoading
-                            ? 'bg-yellow-900/30 border-yellow-700 text-yellow-300 animate-pulse'
-                            : 'bg-white/5 border-white/10 text-gray-300 hover:bg-white/10 hover:border-white/20'
+                          playing  ? 'bg-[#E50914] border-red-600 text-white'
+                          : loading ? 'bg-yellow-900/30 border-yellow-700 text-yellow-300 animate-pulse'
+                          : 'bg-white/5 border-white/10 text-gray-300 hover:bg-white/10 hover:border-white/20'
                         }`}
                       >
                         <div className="flex items-center gap-1 mb-0.5">
-                          {isPlaying && <span className="text-xs">▶</span>}
+                          {playing && <span className="text-xs">▶</span>}
                           <span className="font-bold text-xs">Ep. {ep.mal_id}</span>
                         </div>
                         <div className="text-xs opacity-75 line-clamp-2">
                           {ep.title || `Episódio ${ep.mal_id}`}
                         </div>
-                        {ep.aired && (
-                          <div className="text-xs opacity-40 mt-0.5">
-                            {ep.aired.slice(0, 10)}
-                          </div>
-                        )}
                       </button>
                     )
                   })}
@@ -576,7 +559,7 @@ function AnimePlayer({ item }) {
                 )}
 
                 <p className="text-gray-600 text-xs mt-3 text-center">
-                  Clique para assistir · Primeira carga: ~30s · Suporte a CC quando disponível
+                  Clique para assistir · Se falhar, aguarde ~40s e tente de novo
                 </p>
               </>
             )}
@@ -587,9 +570,9 @@ function AnimePlayer({ item }) {
   )
 }
 
-/* ────────────────────────
+/* ─────────────────
    Modal wrapper
-──────────────────────── */
+───────────────── */
 export default function Modal({ item, type, onClose }) {
   useEffect(() => {
     const onKey = (e) => e.key === 'Escape' && onClose()
