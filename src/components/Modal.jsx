@@ -1,21 +1,39 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { getImgUrl, getMovieDetails, getSeriesDetails } from '../api/tmdb'
 import { getAnimeDetails, getAnimeEpisodes } from '../api/jikan'
-import { searchGogoanime, getGogoanimeInfo, watchGogoanime } from '../api/consumet'
+import { searchAniList, getEpisodesFromAniList, getStreamUrl } from '../api/consumet'
 import VideoPlayer from './VideoPlayer'
 
-/* ─── TMDB / vidsrc player ─── */
+/* ─── Servidores de embed para filmes ─── */
+const MOVIE_SERVERS = [
+  { id: 1, name: 'Server 1', url: (id) => `https://vidsrc.me/embed/movie?tmdb=${id}` },
+  { id: 2, name: 'Server 2', url: (id) => `https://embed.su/embed/movie/${id}` },
+  { id: 3, name: 'Server 3', url: (id) => `https://www.2embed.cc/embed/${id}` },
+  { id: 4, name: 'Server 4', url: (id) => `https://multiembed.mov/directstream.php?video_id=${id}&tmdb=1` },
+  { id: 5, name: 'Server 5', url: (id) => `https://vidsrc.to/embed/movie/${id}` },
+]
+
+const TV_SERVERS = [
+  { id: 1, name: 'Server 1', url: (id, s, e) => `https://vidsrc.me/embed/tv?tmdb=${id}&season=${s}&episode=${e}` },
+  { id: 2, name: 'Server 2', url: (id, s, e) => `https://embed.su/embed/tv/${id}/${s}/${e}` },
+  { id: 3, name: 'Server 3', url: (id, s, e) => `https://www.2embed.cc/embed/tv?tmdb=${id}&s=${s}&e=${e}` },
+  { id: 4, name: 'Server 4', url: (id, s, e) => `https://multiembed.mov/directstream.php?video_id=${id}&tmdb=1&s=${s}&e=${e}` },
+  { id: 5, name: 'Server 5', url: (id, s, e) => `https://vidsrc.to/embed/tv/${id}/${s}/${e}` },
+]
+
+/* ─── Player de filmes/séries ─── */
 function TmdbPlayer({ item, type }) {
-  const [mode, setMode] = useState('trailer') // 'trailer' | 'watch'
+  const [details, setDetails] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [mode, setMode] = useState('info')        // 'info' | 'trailer' | 'watch'
   const [trailerKey, setTrailerKey] = useState(null)
   const [season, setSeason] = useState(1)
   const [episode, setEpisode] = useState(1)
   const [totalSeasons, setTotalSeasons] = useState(1)
   const [totalEps, setTotalEps] = useState(1)
-  const [details, setDetails] = useState(null)
-  const [loading, setLoading] = useState(true)
-
+  const [server, setServer] = useState(1)
   const isTV = type === 'tv'
+  const servers = isTV ? TV_SERVERS : MOVIE_SERVERS
 
   useEffect(() => {
     const fetch = async () => {
@@ -27,21 +45,22 @@ function TmdbPlayer({ item, type }) {
         const t = d.videos?.results?.find((v) => v.type === 'Trailer' && v.site === 'YouTube')
         if (t) setTrailerKey(t.key)
         if (isTV) {
-          setTotalSeasons(d.number_of_seasons || 1)
-          if (d.seasons?.[0]) {
-            const firstReal = d.seasons.find((s) => s.season_number > 0) || d.seasons[0]
+          const seasons = d.number_of_seasons || 1
+          setTotalSeasons(seasons)
+          const firstReal = d.seasons?.find((s) => s.season_number > 0) || d.seasons?.[0]
+          if (firstReal) {
             setSeason(firstReal.season_number)
             setTotalEps(firstReal.episode_count || 1)
           }
         }
-      } catch { /* ignore */ } finally { setLoading(false) }
+      } catch { /* ignora erros */ } finally { setLoading(false) }
     }
     fetch()
   }, [item.id, isTV])
 
-  const watchUrl = isTV
-    ? `https://vidsrc.to/embed/tv/${item.id}/${season}/${episode}`
-    : `https://vidsrc.to/embed/movie/${item.id}`
+  const embedUrl = isTV
+    ? servers.find((s) => s.id === server)?.url(item.id, season, episode)
+    : servers.find((s) => s.id === server)?.url(item.id)
 
   const title = details?.title || details?.name || item.title || item.name
   const overview = details?.overview || item.overview
@@ -52,78 +71,100 @@ function TmdbPlayer({ item, type }) {
   const cast = details?.credits?.cast?.slice(0, 6).map((c) => c.name).join(', ')
 
   if (loading) return (
-    <div className="h-80 flex items-center justify-center">
+    <div className="h-72 flex items-center justify-center">
       <div className="w-10 h-10 border-4 border-[#E50914] border-t-transparent rounded-full animate-spin" />
     </div>
   )
 
   return (
     <div>
-      {/* Player area */}
-      {mode === 'watch' ? (
+      {/* Área do player */}
+      {mode === 'watch' && (
         <div className="relative bg-black">
+          {/* Seletor de servidor */}
+          <div className="flex gap-1 p-2 bg-black/80 flex-wrap">
+            {servers.map((s) => (
+              <button
+                key={s.id}
+                onClick={() => setServer(s.id)}
+                className={`text-xs px-3 py-1 rounded transition-colors ${
+                  server === s.id
+                    ? 'bg-[#E50914] text-white font-bold'
+                    : 'bg-white/10 text-gray-300 hover:bg-white/20'
+                }`}
+              >
+                {s.name}
+              </button>
+            ))}
+            {isTV && (
+              <>
+                <select
+                  value={season}
+                  onChange={(e) => { setSeason(+e.target.value); setEpisode(1) }}
+                  className="bg-white/10 text-white text-xs px-2 py-1 rounded border border-white/20 outline-none ml-2"
+                >
+                  {Array.from({ length: totalSeasons }, (_, i) => i + 1).map((s) => (
+                    <option key={s} value={s} className="bg-gray-900">T{s}</option>
+                  ))}
+                </select>
+                <select
+                  value={episode}
+                  onChange={(e) => setEpisode(+e.target.value)}
+                  className="bg-white/10 text-white text-xs px-2 py-1 rounded border border-white/20 outline-none"
+                >
+                  {Array.from({ length: Math.max(totalEps, 1) }, (_, i) => i + 1).map((e) => (
+                    <option key={e} value={e} className="bg-gray-900">E{e}</option>
+                  ))}
+                </select>
+              </>
+            )}
+            <button
+              onClick={() => setMode('info')}
+              className="ml-auto text-xs text-gray-400 hover:text-white px-2"
+            >
+              ✕ Fechar
+            </button>
+          </div>
           <iframe
-            src={watchUrl}
+            key={`${server}-${season}-${episode}`}
+            src={embedUrl}
             className="w-full aspect-video"
             allowFullScreen
-            allow="autoplay; encrypted-media"
+            allow="autoplay; encrypted-media; fullscreen"
           />
-          <button
-            onClick={() => setMode('trailer')}
-            className="absolute top-2 right-2 bg-black/70 text-white text-xs px-3 py-1.5 rounded-full hover:bg-black"
-          >
-            ✕ Fechar Player
-          </button>
+          <p className="text-gray-600 text-xs text-center py-1 bg-black">
+            Se não carregar, troque de servidor acima
+          </p>
         </div>
-      ) : mode === 'trailer' && trailerKey ? (
-        <div className="relative">
-          <iframe
-            src={`https://www.youtube.com/embed/${trailerKey}?autoplay=0`}
-            className="w-full aspect-video"
-            allow="encrypted-media"
-            allowFullScreen
-          />
-        </div>
-      ) : (
-        <div className="relative w-full aspect-video bg-gray-900">
+      )}
+
+      {mode === 'trailer' && trailerKey && (
+        <iframe
+          src={`https://www.youtube.com/embed/${trailerKey}?autoplay=1`}
+          className="w-full aspect-video"
+          allow="autoplay; encrypted-media"
+          allowFullScreen
+        />
+      )}
+
+      {mode === 'info' && (
+        <div className="relative w-full aspect-video bg-gray-900 overflow-hidden">
           {backdrop && <img src={backdrop} alt={title} className="w-full h-full object-cover" />}
-          <div className="absolute inset-0 bg-gradient-to-t from-[#1a1a1a] to-transparent" />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#1a1a1a] via-[#1a1a1a]/30 to-transparent" />
+          {/* Botão play central */}
+          <button
+            onClick={() => setMode('watch')}
+            className="absolute inset-0 flex items-center justify-center group"
+          >
+            <div className="w-16 h-16 bg-white/20 group-hover:bg-white/30 backdrop-blur-sm rounded-full flex items-center justify-center transition-all">
+              <span className="text-white text-3xl ml-1">▶</span>
+            </div>
+          </button>
         </div>
       )}
 
       {/* Info */}
       <div className="p-5 md:p-6">
-        {/* Season/episode selector for TV */}
-        {isTV && mode === 'watch' && (
-          <div className="flex flex-wrap gap-3 mb-4">
-            <div className="flex items-center gap-2">
-              <label className="text-gray-400 text-xs">Temporada</label>
-              <select
-                value={season}
-                onChange={(e) => { setSeason(+e.target.value); setEpisode(1) }}
-                className="bg-white/10 text-white text-sm px-2 py-1 rounded border border-white/20 outline-none"
-              >
-                {Array.from({ length: totalSeasons }, (_, i) => i + 1).map((s) => (
-                  <option key={s} value={s}>T{s}</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-gray-400 text-xs">Episódio</label>
-              <select
-                value={episode}
-                onChange={(e) => setEpisode(+e.target.value)}
-                className="bg-white/10 text-white text-sm px-2 py-1 rounded border border-white/20 outline-none"
-              >
-                {Array.from({ length: Math.max(totalEps, 1) }, (_, i) => i + 1).map((e) => (
-                  <option key={e} value={e}>E{e}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-        )}
-
-        {/* Action buttons */}
         <div className="flex flex-wrap gap-2 mb-4">
           <button
             onClick={() => setMode('watch')}
@@ -154,137 +195,109 @@ function TmdbPlayer({ item, type }) {
             ))}
           </div>
         )}
-        {overview && <p className="text-gray-300 text-sm leading-relaxed mb-3">{overview}</p>}
+        {overview && <p className="text-gray-300 text-sm leading-relaxed mb-2">{overview}</p>}
         {cast && <p className="text-gray-500 text-xs">Elenco: {cast}</p>}
       </div>
     </div>
   )
 }
 
-/* ─── Anime player ─── */
+/* ─── Player de anime ─── */
 function AnimePlayer({ item }) {
   const [details, setDetails] = useState(null)
-  const [episodes, setEpisodes] = useState([])
+  const [jikanEps, setJikanEps] = useState([])
   const [totalEps, setTotalEps] = useState(0)
   const [epPage, setEpPage] = useState(1)
-  const [activeTab, setActiveTab] = useState('sobre') // 'sobre' | 'episodios'
+  const [activeTab, setActiveTab] = useState('sobre')
 
-  // Consumet state
-  const [gogoanimeId, setGogoanimeId] = useState(null)
-  const [gogoanimeEps, setGogoanimeEps] = useState([])
+  // Stream state
   const [selectedEp, setSelectedEp] = useState(null)
   const [streamUrl, setStreamUrl] = useState(null)
   const [streamLoading, setStreamLoading] = useState(false)
   const [streamError, setStreamError] = useState('')
-  const [searchingStream, setSearchingStream] = useState(false)
+  const [streamStatus, setStreamStatus] = useState('')
 
-  // Load anime details + episodes from Jikan
+  // AniList / Consumet cache refs
+  const anilistId = useRef(null)
+  const consumetEps = useRef([])
+
+  // Carrega detalhes e episódios do Jikan
   useEffect(() => {
-    const fetchDetails = async () => {
+    const fetch = async () => {
       try {
         const [detRes, epRes] = await Promise.allSettled([
           getAnimeDetails(item.mal_id),
           getAnimeEpisodes(item.mal_id, 1),
         ])
-        const d = detRes.value?.data?.data
-        setDetails(d)
-        const epData = epRes.value?.data
-        setEpisodes(epData?.data || [])
-        setTotalEps(epData?.pagination?.items?.total || d?.episodes || 0)
-      } catch { /* ignore */ }
-    }
-    fetchDetails()
-  }, [item.mal_id])
-
-  // Load more episode pages
-  useEffect(() => {
-    if (epPage === 1) return
-    const fetch = async () => {
-      try {
-        const res = await getAnimeEpisodes(item.mal_id, epPage)
-        setEpisodes((prev) => [...prev, ...(res?.data?.data || [])])
-      } catch { /* ignore */ }
+        if (detRes.value) setDetails(detRes.value.data?.data)
+        if (epRes.value) {
+          const d = epRes.value.data
+          setJikanEps(d?.data || [])
+          setTotalEps(d?.pagination?.items?.total || 0)
+        }
+      } catch { /* ignora */ }
     }
     fetch()
+  }, [item.mal_id])
+
+  // Carrega mais episódios
+  useEffect(() => {
+    if (epPage === 1) return
+    getAnimeEpisodes(item.mal_id, epPage)
+      .then((r) => setJikanEps((p) => [...p, ...(r?.data?.data || [])]))
+      .catch(() => {})
   }, [epPage, item.mal_id])
-
-  // Find anime on Gogoanime via Consumet
-  const findOnGogoanime = useCallback(async (title) => {
-    setSearchingStream(true)
-    try {
-      const res = await searchGogoanime(title)
-      const results = res?.data?.results || []
-      if (results.length === 0) return null
-      // prefer exact or closest match
-      const match = results.find((r) =>
-        r.title?.toLowerCase().includes(title.toLowerCase().split(' ')[0])
-      ) || results[0]
-      setGogoanimeId(match.id)
-
-      // Get episodes from Consumet
-      const infoRes = await getGogoanimeInfo(match.id)
-      const eps = infoRes?.data?.episodes || []
-      setGogoanimeEps(eps)
-      return match.id
-    } catch {
-      return null
-    } finally {
-      setSearchingStream(false)
-    }
-  }, [])
 
   const playEpisode = async (epNum) => {
     setSelectedEp(epNum)
     setStreamUrl(null)
     setStreamError('')
     setStreamLoading(true)
+    setStreamStatus('Buscando anime no AniList...')
     setActiveTab('episodios')
 
     try {
-      let gId = gogoanimeId
-      if (!gId) {
-        const searchTitle = details?.title_english || details?.title || item.title
-        gId = await findOnGogoanime(searchTitle)
+      // Passo 1: AniList ID
+      if (!anilistId.current) {
+        const searchTitle =
+          details?.title_english || details?.title || item.title_english || item.title
+        setStreamStatus(`Buscando "${searchTitle}"...`)
+        const media = await searchAniList(searchTitle)
+        if (!media?.id) throw new Error('Anime não encontrado no AniList')
+        anilistId.current = media.id
       }
 
-      if (!gId) {
-        setStreamError('Anime não encontrado na fonte de streaming.')
-        setStreamLoading(false)
-        return
+      // Passo 2: Episódios via Consumet (AniList meta)
+      if (consumetEps.current.length === 0) {
+        setStreamStatus('Carregando lista de episódios... (pode levar ~30s)')
+        consumetEps.current = await getEpisodesFromAniList(anilistId.current)
       }
 
-      // Find the episode ID from Consumet's list
-      let eps = gogoanimeEps
-      if (eps.length === 0) {
-        const infoRes = await getGogoanimeInfo(gId)
-        eps = infoRes?.data?.episodes || []
-        setGogoanimeEps(eps)
-      }
+      if (consumetEps.current.length === 0) throw new Error('Episódios não encontrados na fonte')
 
-      const epEntry = eps.find((e) => e.number === epNum) || eps[epNum - 1]
-      if (!epEntry) {
-        setStreamError(`Episódio ${epNum} não disponível.`)
-        setStreamLoading(false)
-        return
-      }
+      // Passo 3: Encontra o episódio
+      const epEntry =
+        consumetEps.current.find((e) => e.number === epNum) ||
+        consumetEps.current[epNum - 1]
+      if (!epEntry) throw new Error(`Episódio ${epNum} indisponível`)
 
-      const watchRes = await watchGogoanime(epEntry.id)
-      const sources = watchRes?.data?.sources || []
-      // Prefer default HLS source
-      const hls = sources.find((s) => s.isM3U8) || sources[0]
-      if (!hls) {
-        setStreamError('Stream não disponível para este episódio.')
-      } else {
-        setStreamUrl(hls.url)
-      }
+      // Passo 4: Stream
+      setStreamStatus(`Carregando stream do episódio ${epNum}...`)
+      const url = await getStreamUrl(epEntry.id)
+      if (!url) throw new Error('Stream não disponível para este episódio')
+      setStreamUrl(url)
     } catch (e) {
-      if (e.code === 'ECONNABORTED' || e.message?.includes('timeout')) {
-        setStreamError('O servidor de streaming está iniciando (pode levar ~30s). Tente novamente.')
+      const msg = e.message || ''
+      if (msg.includes('timeout') || msg.includes('ECONNABORTED')) {
+        setStreamError('Servidor de streaming demorou demais. Tente novamente — o servidor pode estar iniciando.')
+      } else if (msg.includes('falharam') || msg.includes('Network')) {
+        setStreamError('Não foi possível conectar ao servidor de streaming. Verifique sua conexão.')
       } else {
-        setStreamError('Erro ao carregar stream. Tente outro episódio.')
+        setStreamError(msg || 'Erro ao carregar stream.')
       }
     } finally {
       setStreamLoading(false)
+      setStreamStatus('')
     }
   }
 
@@ -293,19 +306,17 @@ function AnimePlayer({ item }) {
   const score = details?.score || item.score
   const poster = details?.images?.jpg?.large_image_url || item.images?.jpg?.large_image_url
   const genres = details?.genres?.map((g) => g.name) || []
-  const year = details?.year || item.year
   const epCount = details?.episodes || item.episodes || totalEps
+  const year = details?.year || item.year
 
   return (
     <div>
-      {/* Player or poster */}
+      {/* Área do player */}
       {streamLoading && (
-        <div className="w-full aspect-video bg-black flex flex-col items-center justify-center gap-3">
-          <div className="w-10 h-10 border-4 border-[#E50914] border-t-transparent rounded-full animate-spin" />
-          <p className="text-gray-400 text-sm">
-            {searchingStream ? 'Buscando anime...' : `Carregando episódio ${selectedEp}...`}
-          </p>
-          <p className="text-gray-600 text-xs">Pode levar até 30s no primeiro acesso</p>
+        <div className="w-full aspect-video bg-black flex flex-col items-center justify-center gap-4 px-6 text-center">
+          <div className="w-12 h-12 border-4 border-[#E50914] border-t-transparent rounded-full animate-spin" />
+          <p className="text-gray-300 text-sm">{streamStatus || 'Carregando...'}</p>
+          <p className="text-gray-600 text-xs">A primeira requisição pode levar até 40s (servidor gratuito)</p>
         </div>
       )}
 
@@ -313,11 +324,11 @@ function AnimePlayer({ item }) {
         <div className="relative">
           <VideoPlayer src={streamUrl} poster={poster} />
           <div className="absolute top-2 left-2 bg-black/70 text-white text-xs px-3 py-1 rounded-full">
-            Episódio {selectedEp}
+            Ep. {selectedEp}
           </div>
           <button
             onClick={() => { setStreamUrl(null); setSelectedEp(null) }}
-            className="absolute top-2 right-2 bg-black/70 text-white text-xs px-3 py-1 rounded-full hover:bg-black"
+            className="absolute top-2 right-2 bg-black/70 hover:bg-black text-white text-xs px-3 py-1 rounded-full"
           >
             ✕ Fechar
           </button>
@@ -325,19 +336,19 @@ function AnimePlayer({ item }) {
       )}
 
       {!streamLoading && !streamUrl && (
-        <div className="relative w-full aspect-video bg-gray-900">
+        <div className="relative w-full aspect-video bg-gray-900 overflow-hidden">
           {poster && <img src={poster} alt={title} className="w-full h-full object-cover object-top" />}
           <div className="absolute inset-0 bg-gradient-to-t from-[#1a1a1a] via-transparent to-transparent" />
         </div>
       )}
 
       {/* Tabs */}
-      <div className="flex border-b border-white/10 px-5 mt-2">
+      <div className="flex border-b border-white/10 px-5 mt-1">
         {['sobre', 'episodios'].map((tab) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
-            className={`px-4 py-3 text-sm font-semibold capitalize transition-colors border-b-2 -mb-px ${
+            className={`px-4 py-3 text-sm font-semibold transition-colors border-b-2 -mb-px ${
               activeTab === tab
                 ? 'border-[#E50914] text-white'
                 : 'border-transparent text-gray-500 hover:text-gray-300'
@@ -349,24 +360,36 @@ function AnimePlayer({ item }) {
       </div>
 
       <div className="p-5">
-        {/* Stream error */}
+        {/* Erro de stream */}
         {streamError && (
-          <div className="bg-red-900/30 border border-red-700/50 text-red-300 text-sm px-4 py-3 rounded-lg mb-4">
-            {streamError}
+          <div className="bg-red-900/30 border border-red-700/50 rounded-lg px-4 py-3 mb-4 flex items-start gap-3">
+            <span className="text-red-400 text-lg mt-0.5">⚠</span>
+            <div className="flex-1">
+              <p className="text-red-300 text-sm">{streamError}</p>
+              {selectedEp && (
+                <button
+                  onClick={() => playEpisode(selectedEp)}
+                  className="mt-2 text-xs bg-red-700 hover:bg-red-600 text-white px-3 py-1 rounded transition-colors"
+                >
+                  Tentar novamente
+                </button>
+              )}
+            </div>
           </div>
         )}
 
         {activeTab === 'sobre' && (
           <div>
             <div className="flex gap-4 mb-4">
-              {/* Poster thumb */}
-              <img src={poster} alt={title} className="w-20 rounded-lg object-cover flex-shrink-0 hidden sm:block" />
+              {poster && (
+                <img src={poster} alt={title} className="w-20 rounded-lg object-cover flex-shrink-0 hidden sm:block" />
+              )}
               <div>
                 <h2 className="text-white text-xl font-bold">{title}</h2>
                 {details?.title_english && details.title_english !== title && (
                   <p className="text-gray-500 text-sm">{details.title_english}</p>
                 )}
-                <div className="flex flex-wrap items-center gap-3 text-sm mt-1">
+                <div className="flex flex-wrap items-center gap-3 text-sm mt-2">
                   {score > 0 && <span className="text-yellow-400 font-bold">⭐ {Number(score).toFixed(1)}</span>}
                   {year && <span className="text-gray-400">{year}</span>}
                   {epCount > 0 && <span className="text-gray-400">{epCount} ep.</span>}
@@ -389,10 +412,12 @@ function AnimePlayer({ item }) {
             )}
             {overview && <p className="text-gray-300 text-sm leading-relaxed">{overview}</p>}
             {details?.studios?.length > 0 && (
-              <p className="text-gray-500 text-xs mt-3">Estúdio: {details.studios.map((s) => s.name).join(', ')}</p>
+              <p className="text-gray-500 text-xs mt-3">
+                Estúdio: {details.studios.map((s) => s.name).join(', ')}
+              </p>
             )}
             <button
-              onClick={() => { setActiveTab('episodios') }}
+              onClick={() => setActiveTab('episodios')}
               className="mt-4 flex items-center gap-2 bg-[#E50914] text-white font-bold px-5 py-2 rounded-md hover:bg-red-700 transition-colors text-sm"
             >
               ▶ Ver Episódios
@@ -402,44 +427,46 @@ function AnimePlayer({ item }) {
 
         {activeTab === 'episodios' && (
           <div>
-            {episodes.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
+            {jikanEps.length === 0 ? (
+              <div className="text-center py-10 text-gray-500">
                 <div className="w-8 h-8 border-4 border-gray-700 border-t-gray-400 rounded-full animate-spin mx-auto mb-3" />
                 Carregando episódios...
               </div>
             ) : (
               <>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-64 overflow-y-auto pr-1">
-                  {episodes.map((ep) => (
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-72 overflow-y-auto pr-1">
+                  {jikanEps.map((ep) => (
                     <button
                       key={ep.mal_id}
                       onClick={() => playEpisode(ep.mal_id)}
-                      className={`text-left p-3 rounded-lg text-sm transition-colors border ${
-                        selectedEp === ep.mal_id
+                      disabled={streamLoading}
+                      className={`text-left p-3 rounded-lg text-sm transition-all border disabled:opacity-50 ${
+                        selectedEp === ep.mal_id && streamUrl
                           ? 'bg-[#E50914] border-red-600 text-white'
+                          : selectedEp === ep.mal_id && streamLoading
+                          ? 'bg-yellow-900/40 border-yellow-700 text-yellow-300 animate-pulse'
                           : 'bg-white/5 border-white/10 text-gray-300 hover:bg-white/10 hover:border-white/20'
                       }`}
                     >
                       <div className="font-bold text-xs mb-0.5">Ep. {ep.mal_id}</div>
-                      <div className="text-xs opacity-80 line-clamp-2">
+                      <div className="text-xs opacity-75 line-clamp-2">
                         {ep.title || `Episódio ${ep.mal_id}`}
                       </div>
                     </button>
                   ))}
                 </div>
 
-                {/* Load more episodes */}
-                {episodes.length < totalEps && (
+                {jikanEps.length < (totalEps || epCount) && (
                   <button
                     onClick={() => setEpPage((p) => p + 1)}
                     className="mt-3 w-full bg-white/10 hover:bg-white/15 text-white text-sm py-2 rounded-lg transition-colors"
                   >
-                    Carregar mais episódios
+                    Carregar mais episódios ({jikanEps.length}/{totalEps || epCount})
                   </button>
                 )}
 
                 <p className="text-gray-600 text-xs mt-3 text-center">
-                  Clique em um episódio para assistir direto aqui
+                  Clique em um episódio para assistir · Primeira carga pode levar ~30s
                 </p>
               </>
             )}
@@ -468,7 +495,6 @@ export default function Modal({ item, type, onClose }) {
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" />
-
       <div className="modal-enter relative bg-[#1a1a1a] rounded-xl overflow-hidden w-full max-w-3xl max-h-[92vh] overflow-y-auto shadow-2xl">
         <button
           onClick={onClose}
@@ -476,12 +502,7 @@ export default function Modal({ item, type, onClose }) {
         >
           ×
         </button>
-
-        {type === 'anime' ? (
-          <AnimePlayer item={item} />
-        ) : (
-          <TmdbPlayer item={item} type={type} />
-        )}
+        {type === 'anime' ? <AnimePlayer item={item} /> : <TmdbPlayer item={item} type={type} />}
       </div>
     </div>
   )
